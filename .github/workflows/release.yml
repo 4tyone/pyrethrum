@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: pyrethrum-linux-x64
+          - os: macos-13
+            target: pyrethrum-darwin-x64
+          - os: macos-latest
+            target: pyrethrum-darwin-arm64
+          - os: windows-latest
+            target: pyrethrum-windows-x64.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v2
+        with:
+          ocaml-compiler: '5.1.1'
+
+      - name: Install dependencies
+        run: opam install . --deps-only
+
+      - name: Build release binary
+        run: opam exec -- dune build --release
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: cp _build/default/bin/main.exe ${{ matrix.target }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        run: copy _build\default\bin\main.exe ${{ matrix.target }}
+        shell: cmd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: binaries/**/*
+          generate_release_notes: true

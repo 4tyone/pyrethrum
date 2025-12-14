@@ -1,0 +1,10 @@
+(executable
+ (name main)
+ (public_name pyrethrum)
+ (libraries pyrethrum plugin python_plugin cmdliner fmt fmt.tty)
+ (modes exe))
+
+(rule
+ (alias release)
+ (deps main.exe)
+ (action (copy main.exe pyrethrum)))
