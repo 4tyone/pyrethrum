@@ -19,3 +19,5 @@ _opam/
 *.swp
 *.swo
 *~
+
+DOCUMENTATION.md
