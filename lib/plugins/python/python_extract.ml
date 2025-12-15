@@ -25,12 +25,12 @@ type extraction_state = {
   mutable current_class : string option;
 }
 
-let make_state source_file = {
+let make_state ?(known_decorated = []) source_file = {
   signatures = [];
   matches = [];
   bindings = [];
   calls = [];
-  known_decorated = [];
+  known_decorated;
   source_file;
   current_class = None;
 }
@@ -50,6 +50,14 @@ let rec expr_to_name = function
     | Some base -> Some (base ^ "." ^ attr)
     | None -> Some attr)
   | _ -> None
+
+let get_base_name name =
+  match String.rindex_opt name '.' with
+  | Some idx -> String.sub name (idx + 1) (String.length name - idx - 1)
+  | None -> name
+
+let is_known_decorated known_decorated name =
+  List.mem name known_decorated || List.mem (get_base_name name) known_decorated
 
 let expr_to_exc_type expr : A.exc_type option =
   match expr with
@@ -211,6 +219,15 @@ let mark_call_handled_by_var state var_name =
     ) (List.rev state.calls)
   | None -> ()
 
+let get_call_loc_by_var state var_name =
+  match List.find_opt (fun b -> b.var_name = var_name) state.bindings with
+  | Some binding ->
+    let calls_rev = List.rev state.calls in
+    (match List.nth_opt calls_rev binding.call_index with
+     | Some call -> Some (py_loc_to_ast_loc state.source_file call.call_loc)
+     | None -> None)
+  | None -> None
+
 let rec extract_from_expr state expr =
   match expr with
   | Call { func; args; keywords; loc } ->
@@ -221,9 +238,10 @@ let rec extract_from_expr state expr =
     (* match(func, args) calls the function internally, no separate call to mark *)
 
     (match expr_to_name func with
-     | Some name when List.mem name state.known_decorated ->
+     | Some name when is_known_decorated state.known_decorated name ->
+       let base_name = get_base_name name in
        let call : call_record = {
-         call_func_name = name;
+         call_func_name = base_name;
          call_loc = loc;
          call_var_name = None;
          call_handled = false;
@@ -268,7 +286,8 @@ let extract_match_call_from_expr state outer_expr =
   match outer_expr with
   | Call { func = inner_call; args = dict_args; loc; _ } when is_match_function_call inner_call ->
     (match get_match_target_func inner_call with
-     | Some func_name ->
+     | Some name ->
+       let func_name = get_base_name name in
        let handlers, has_ok, has_some, has_nothing = extract_handlers_from_dict_call dict_args in
        let match_call : A.match_call = {
          func_name;
@@ -277,6 +296,7 @@ let extract_match_call_from_expr state outer_expr =
          has_some_handler = has_some;
          has_nothing_handler = has_nothing;
          loc = py_loc_to_ast_loc state.source_file loc;
+         call_loc = Some (py_loc_to_ast_loc state.source_file loc);
          kind = A.MatchFunctionCall;
        } in
        state.matches <- match_call :: state.matches
@@ -288,7 +308,10 @@ let rec extract_from_stmt state stmt =
   match stmt with
   | FunctionDef { name; args = _; body; decorator_list; is_async; loc; _ } ->
     extract_func_signature state name is_async decorator_list loc;
-    List.iter (extract_from_stmt state) body
+    let old_bindings = state.bindings in
+    state.bindings <- [];
+    List.iter (extract_from_stmt state) body;
+    state.bindings <- old_bindings
   | ClassDef { name; body; decorator_list; _ } ->
     List.iter (extract_from_expr state) decorator_list;
     let old_class = state.current_class in
@@ -302,12 +325,13 @@ let rec extract_from_stmt state stmt =
     (match value with
      | Call { func; _ } ->
        (match expr_to_name func with
-        | Some func_name when List.mem func_name state.known_decorated ->
+        | Some name when is_known_decorated state.known_decorated name ->
+          let base_name = get_base_name name in
           List.iter (fun target ->
             match target with
             | Name { id = var_name; _ } ->
               let call_index = List.length state.calls - 1 in
-              let binding : binding = { var_name; func_name; loc; call_index } in
+              let binding : binding = { var_name; func_name = base_name; loc; call_index } in
               state.bindings <- binding :: state.bindings
             | _ -> ()
           ) targets
@@ -325,17 +349,16 @@ let rec extract_from_stmt state stmt =
     extract_from_expr state subject;
     List.iter (fun case -> List.iter (extract_from_stmt state) case.case_body) cases;
 
-    (* Find which function this match is for and mark the call as handled *)
-    let func_name, var_to_mark = match subject with
+    let func_name, var_to_mark, call_loc = match subject with
       | Name { id; _ } ->
-        (* Find binding for this variable *)
         let binding = List.find_opt (fun b -> b.var_name = id) state.bindings in
-        (Option.map (fun b -> b.func_name) binding, Some id)
-      | Call { func; _ } ->
-        (* Direct call as match subject - the call was just added, mark the latest *)
-        let fn = expr_to_name func in
-        (fn, None)
-      | _ -> (None, None)
+        let fn = Option.map (fun b -> b.func_name) binding in
+        let cloc = get_call_loc_by_var state id in
+        (fn, Some id, cloc)
+      | Call { func; loc = call_loc_py; _ } ->
+        let fn = Option.map get_base_name (expr_to_name func) in
+        (fn, None, Some (py_loc_to_ast_loc state.source_file call_loc_py))
+      | _ -> (None, None, None)
     in
     (match func_name with
      | Some fn ->
@@ -347,14 +370,13 @@ let rec extract_from_stmt state stmt =
          has_some_handler = has_some;
          has_nothing_handler = has_nothing;
          loc = py_loc_to_ast_loc state.source_file loc;
+         call_loc;
          kind = A.MatchStatement;
        } in
        state.matches <- match_call :: state.matches;
-       (* Mark the specific call as handled *)
        (match var_to_mark with
         | Some var_name -> mark_call_handled_by_var state var_name
         | None ->
-          (* Direct call - mark the most recent call to this function *)
           match List.find_opt (fun c -> c.call_func_name = fn) state.calls with
           | Some call -> call.call_handled <- true
           | None -> ())
@@ -418,10 +440,9 @@ let get_unhandled_calls state : A.unhandled_call list =
       loc = py_loc_to_ast_loc state.source_file call.call_loc;
       signature_type })
 
-let extract_from_module source_file (module_ : Python_ast.module_) : A.analysis_input =
-  let state = make_state source_file in
+let extract_from_module ?(known_decorated = []) source_file (module_ : Python_ast.module_) : A.analysis_input =
+  let state = make_state ~known_decorated source_file in
 
-  (* First pass: collect all decorated functions *)
   List.iter (extract_from_stmt state) module_.body;
 
   (* Get unhandled calls *)

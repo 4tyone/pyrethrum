@@ -55,6 +55,7 @@ type match_call = {
   has_some_handler : bool;
   has_nothing_handler : bool;
   loc : loc;
+  call_loc : loc option;
   kind : match_kind;
 }
 [@@deriving show, eq]

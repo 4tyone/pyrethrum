@@ -128,8 +128,14 @@ let parse_match_call json =
     | None -> Ok false
   in
   let* loc = member "loc" json >>= parse_loc in
+  let* call_loc_opt = member_opt "call_loc" json in
+  let* call_loc = match call_loc_opt with
+    | Some (`Null) -> Ok None
+    | Some v -> let* l = parse_loc v in Ok (Some l)
+    | None -> Ok None
+  in
   let* kind = member "kind" json >>= parse_match_kind in
-  Ok { func_name; handlers; has_ok_handler; has_some_handler; has_nothing_handler; loc; kind }
+  Ok { func_name; handlers; has_ok_handler; has_some_handler; has_nothing_handler; loc; call_loc; kind }
 
 let parse_language json =
   match json with

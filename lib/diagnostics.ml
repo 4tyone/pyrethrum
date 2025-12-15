@@ -35,6 +35,7 @@ type diagnostic = {
   column : int;
   end_line : int;
   end_column : int;
+  call_line : int option;
   severity : severity;
   code : error_code;
   message : string;
@@ -54,7 +55,7 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
   let decorator = language_decorator_name language in
   let match_fn = language_match_name language in
   match error with
-  | MissingHandlers { func_name; missing; loc } ->
+  | MissingHandlers { func_name; missing; loc; call_loc } ->
       let missing_names = List.map exc_type_to_string missing in
       {
         file = loc.file;
@@ -62,6 +63,7 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Option.map (fun (cl : loc) -> cl.line) call_loc;
         severity = Error;
         code = EXH001;
         message =
@@ -70,7 +72,7 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
         suggestions =
           List.map (fun name -> { action = "add_handler"; exception_name = Some name }) missing_names;
       }
-  | ExtraHandlers { func_name; extra; loc } ->
+  | ExtraHandlers { func_name; extra; loc; call_loc } ->
       let extra_names = List.map exc_type_to_string extra in
       {
         file = loc.file;
@@ -78,6 +80,7 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Option.map (fun (cl : loc) -> cl.line) call_loc;
         severity = Warning;
         code = EXH002;
         message =
@@ -88,52 +91,56 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
             (fun name -> { action = "remove_handler"; exception_name = Some name })
             extra_names;
       }
-  | MissingOkHandler { func_name; loc } ->
+  | MissingOkHandler { func_name; loc; call_loc } ->
       {
         file = loc.file;
         line = loc.line;
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Option.map (fun (cl : loc) -> cl.line) call_loc;
         severity = Error;
         code = EXH003;
         message = Printf.sprintf "%s on `%s` is missing handler for Ok case"
             (String.capitalize_ascii match_fn) func_name;
         suggestions = [ { action = "add_handler"; exception_name = Some "Ok" } ];
       }
-  | MissingSomeHandler { func_name; loc } ->
+  | MissingSomeHandler { func_name; loc; call_loc } ->
       {
         file = loc.file;
         line = loc.line;
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Option.map (fun (cl : loc) -> cl.line) call_loc;
         severity = Error;
         code = EXH005;
         message = Printf.sprintf "%s on `%s` is missing handler for Some case"
             (String.capitalize_ascii match_fn) func_name;
         suggestions = [ { action = "add_handler"; exception_name = Some "Some" } ];
       }
-  | MissingNothingHandler { func_name; loc } ->
+  | MissingNothingHandler { func_name; loc; call_loc } ->
       {
         file = loc.file;
         line = loc.line;
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Option.map (fun (cl : loc) -> cl.line) call_loc;
         severity = Error;
         code = EXH006;
         message = Printf.sprintf "%s on `%s` is missing handler for Nothing case"
             (String.capitalize_ascii match_fn) func_name;
         suggestions = [ { action = "add_handler"; exception_name = Some "Nothing" } ];
       }
-  | UnknownFunction { name; loc } ->
+  | UnknownFunction { name; loc; call_loc } ->
       {
         file = loc.file;
         line = loc.line;
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Option.map (fun (cl : loc) -> cl.line) call_loc;
         severity = Warning;
         code = EXH004;
         message = Printf.sprintf "%s called on `%s` which has no %s signature" match_fn name decorator;
@@ -146,6 +153,7 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Some loc.line;
         severity = Error;
         code = EXH007;
         message = Printf.sprintf "Result from `%s` must be handled with %s or match-case" func_name match_fn;
@@ -158,6 +166,7 @@ let error_to_diagnostic ?(language=Unknown) (error : Exhaustiveness.error) : dia
         column = loc.col;
         end_line = loc.end_line;
         end_column = loc.end_col;
+        call_line = Some loc.line;
         severity = Error;
         code = EXH008;
         message = Printf.sprintf "Option from `%s` must be handled with %s or match-case" func_name match_fn;
@@ -171,17 +180,20 @@ let suggestion_to_json (s : suggestion) : Yojson.Safe.t =
 
 let diagnostic_to_json (d : diagnostic) : Yojson.Safe.t =
   `Assoc
-    [
+    ([
       ("file", `String d.file);
       ("line", `Int d.line);
       ("column", `Int d.column);
       ("endLine", `Int d.end_line);
       ("endColumn", `Int d.end_column);
+    ] @
+    (match d.call_line with Some l -> [("callLine", `Int l)] | None -> []) @
+    [
       ("severity", `String (if d.severity = Error then "error" else "warning"));
       ("code", `String (error_code_to_string d.code));
       ("message", `String d.message);
       ("suggestions", `List (List.map suggestion_to_json d.suggestions));
-    ]
+    ])
 
 let diagnostics_to_json (ds : diagnostic list) : string =
   let json = `Assoc [ ("diagnostics", `List (List.map diagnostic_to_json ds)) ] in

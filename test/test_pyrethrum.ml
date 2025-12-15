@@ -63,6 +63,7 @@ let test_exhaustiveness_missing_handler () =
       has_some_handler = false;
       has_nothing_handler = false;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchFunctionCall;
     }
   in
@@ -70,7 +71,7 @@ let test_exhaustiveness_missing_handler () =
   check (list error_testable) "one error"
     [
       Exhaustiveness.MissingHandlers
-        { func_name = "get_user"; missing = [ Ast.ExcName "InvalidId" ]; loc = test_loc };
+        { func_name = "get_user"; missing = [ Ast.ExcName "InvalidId" ]; loc = test_loc; call_loc = None };
     ]
     errors
 
@@ -93,6 +94,7 @@ let test_exhaustiveness_extra_handler () =
       has_some_handler = false;
       has_nothing_handler = false;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchFunctionCall;
     }
   in
@@ -100,7 +102,7 @@ let test_exhaustiveness_extra_handler () =
   check (list error_testable) "one error"
     [
       Exhaustiveness.ExtraHandlers
-        { func_name = "get_user"; extra = [ Ast.ExcName "Unexpected" ]; loc = test_loc };
+        { func_name = "get_user"; extra = [ Ast.ExcName "Unexpected" ]; loc = test_loc; call_loc = None };
     ]
     errors
 
@@ -123,12 +125,13 @@ let test_exhaustiveness_missing_ok () =
       has_some_handler = false;
       has_nothing_handler = false;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchFunctionCall;
     }
   in
   let errors = Exhaustiveness.check_all [ signature ] [ call ] in
   check (list error_testable) "one error"
-    [ Exhaustiveness.MissingOkHandler { func_name = "get_user"; loc = test_loc } ]
+    [ Exhaustiveness.MissingOkHandler { func_name = "get_user"; loc = test_loc; call_loc = None } ]
     errors
 
 let test_exhaustiveness_all_handled () =
@@ -150,6 +153,7 @@ let test_exhaustiveness_all_handled () =
       has_some_handler = false;
       has_nothing_handler = false;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchFunctionCall;
     }
   in
@@ -165,12 +169,13 @@ let test_exhaustiveness_unknown_function () =
       has_some_handler = false;
       has_nothing_handler = false;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchFunctionCall;
     }
   in
   let errors = Exhaustiveness.check_all [] [ call ] in
   check (list error_testable) "one error"
-    [ Exhaustiveness.UnknownFunction { name = "unknown_func"; loc = test_loc } ]
+    [ Exhaustiveness.UnknownFunction { name = "unknown_func"; loc = test_loc; call_loc = None } ]
     errors
 
 let test_exhaustiveness_option_all_handled () =
@@ -192,6 +197,7 @@ let test_exhaustiveness_option_all_handled () =
       has_some_handler = true;
       has_nothing_handler = true;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchStatement;
     }
   in
@@ -217,12 +223,13 @@ let test_exhaustiveness_option_missing_some () =
       has_some_handler = false;
       has_nothing_handler = true;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchStatement;
     }
   in
   let errors = Exhaustiveness.check_all [ signature ] [ call ] in
   check (list error_testable) "one error"
-    [ Exhaustiveness.MissingSomeHandler { func_name = "find_user"; loc = test_loc } ]
+    [ Exhaustiveness.MissingSomeHandler { func_name = "find_user"; loc = test_loc; call_loc = None } ]
     errors
 
 let test_exhaustiveness_option_missing_nothing () =
@@ -244,12 +251,13 @@ let test_exhaustiveness_option_missing_nothing () =
       has_some_handler = true;
       has_nothing_handler = false;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchStatement;
     }
   in
   let errors = Exhaustiveness.check_all [ signature ] [ call ] in
   check (list error_testable) "one error"
-    [ Exhaustiveness.MissingNothingHandler { func_name = "find_user"; loc = test_loc } ]
+    [ Exhaustiveness.MissingNothingHandler { func_name = "find_user"; loc = test_loc; call_loc = None } ]
     errors
 
 let test_exhaustiveness_option_extra_handler () =
@@ -271,6 +279,7 @@ let test_exhaustiveness_option_extra_handler () =
       has_some_handler = true;
       has_nothing_handler = true;
       loc = test_loc;
+      call_loc = None;
       kind = Ast.MatchStatement;
     }
   in
@@ -278,7 +287,7 @@ let test_exhaustiveness_option_extra_handler () =
   check (list error_testable) "one error"
     [
       Exhaustiveness.ExtraHandlers
-        { func_name = "find_user"; extra = [ Ast.ExcName "SomeError" ]; loc = test_loc };
+        { func_name = "find_user"; extra = [ Ast.ExcName "SomeError" ]; loc = test_loc; call_loc = None };
     ]
     errors
 
@@ -290,6 +299,7 @@ let test_diagnostic_json () =
       column = 5;
       end_line = 10;
       end_column = 20;
+      call_line = None;
       severity = Diagnostics.Error;
       code = Diagnostics.EXH001;
       message = "Test message";

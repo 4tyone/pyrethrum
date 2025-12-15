@@ -27,6 +27,21 @@ let get_source_file json =
     | _ -> None)
   | _ -> None
 
+let parse_external_signatures json =
+  match json with
+  | `Assoc fields -> (
+    match List.assoc_opt "external_signatures" fields with
+    | Some (`List sigs) ->
+      let parse_results = List.map Parse.parse_func_signature sigs in
+      let rec collect acc = function
+        | [] -> Ok (List.rev acc)
+        | Ok sig_ :: rest -> collect (sig_ :: acc) rest
+        | Error _ :: rest -> collect acc rest
+      in
+      collect [] parse_results
+    | _ -> Ok [])
+  | _ -> Ok []
+
 let parse_raw_ast json =
   let source_file = get_source_file json |> Option.value ~default:"<unknown>" in
   let* ast_json =
@@ -38,7 +53,10 @@ let parse_raw_ast json =
     | _ -> Error "Expected object"
   in
   let* module_ = Python_parse.parse_module ast_json in
-  Ok (Python_extract.extract_from_module source_file module_)
+  let* external_sigs = parse_external_signatures json in
+  let known_decorated = List.map (fun (s : Ast.func_signature) -> s.name) external_sigs in
+  let result = Python_extract.extract_from_module ~known_decorated source_file module_ in
+  Ok { result with Ast.signatures = external_sigs @ result.Ast.signatures }
 
 let () =
   P.register_plugin (module struct
